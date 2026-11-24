@@ -1,0 +1,58 @@
+name: AtomGit bridge
+on:
+  push:
+    branches: [atomgit-bridge]
+    paths:
+      - '.github/workflows/atomgit-bridge.yml'
+      - '.atomgit-bridge/request.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atomgit-bridge
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Verify AtomGit authentication and synchronize requested branch
+        shell: bash
+        env:
+          ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -euo pipefail
+          test -n "$ATOMGIT_TOKEN" || { echo 'Missing ATOMGIT_TOKEN'; exit 1; }
+          curl --fail --silent --show-error --max-time 30 \
+            -H "Authorization: Bearer $ATOMGIT_TOKEN" \
+            https://api.atomgit.com/api/v5/user | jq -e '.login == "ddy0405"' >/dev/null
+          echo 'AtomGit account verified.'
+          remote=https://atomgit.com/ddy0405/qingzhou.git
+          git ls-remote --symref "$remote" HEAD
+          if [[ ! -f .atomgit-bridge/request.txt ]]; then
+            echo 'Authentication and repository connectivity checks complete.'
+            exit 0
+          fi
+          branch=$(cat .atomgit-bridge/request.txt)
+          [[ "$branch" =~ ^contrib/[a-zA-Z0-9][a-zA-Z0-9._/-]*$ ]] && git check-ref-format "refs/heads/$branch" || { echo 'Expected a valid contrib/* branch'; exit 1; }
+          git fetch --no-tags origin "refs/heads/$branch"
+          commit=$(git rev-parse FETCH_HEAD)
+          askpass=$(mktemp)
+          trap 'rm -f "$askpass"' EXIT
+          cat > "$askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' 'ddy0405' ;;
+            *Password*) printf '%s\n' "$ATOMGIT_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 700 "$askpass"
+          GIT_ASKPASS="$askpass" git -c credential.helper= push "$remote" "$commit:refs/heads/$branch"
+          echo "Synchronized $branch to AtomGit."
