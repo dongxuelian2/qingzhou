@@ -1,0 +1,33 @@
+name: CertiControl plugin JAR
+on:
+  push:
+    branches: [atomgit-bridge]
+    paths: ['.github/workflows/certicontrol-jar.yml']
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: f2deeed0cd1bdca67dfff4aa70b872a4da799773
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: mvn -B -pl apps/qingzhou-app-certicontrol -am clean package -DskipTests
+      - name: Prepare deployable JAR
+        run: |
+          mkdir -p dist
+          cp apps/qingzhou-app-certicontrol/target/qingzhou-app-certicontrol-1.0.0-SNAPSHOT.jar dist/qingzhou-app-certicontrol.jar
+          jar tf dist/qingzhou-app-certicontrol.jar | grep 'qingzhou/app/certicontrol/CertiControlApp.class'
+          jar tf dist/qingzhou-app-certicontrol.jar | grep 'qingzhou/app/certicontrol/internal/math3/linear/SingularValueDecomposition.class'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qingzhou-app-certicontrol
+          path: dist/qingzhou-app-certicontrol.jar
+          if-no-files-found: error
+          retention-days: 90
