@@ -17,7 +17,13 @@ with sync_playwright() as pw:
         page.locator('input[autocomplete="current-password"]').fill(os.environ["DEMO_PASSWORD"])
         page.locator('input[autocomplete="current-password"]').press("Enter")
         card = page.get_by_text("CertiControl 控制系统诊断", exact=True)
-        expect(card.first).to_be_visible(timeout=60000)
+        for attempt in range(12):
+            try:
+                card.first.wait_for(state="visible", timeout=5000)
+                break
+            except Exception:
+                page.reload()
+        expect(card.first).to_be_visible(timeout=30000)
         page.screenshot(path=OUT / "01-app-list.png", full_page=True)
         card.first.click()
         page.get_by_text("系统模型", exact=True).first.wait_for(state="visible")
@@ -31,7 +37,7 @@ with sync_playwright() as pw:
         page.screenshot(path=OUT / "02-model-form.png", full_page=True)
         # Native Qingzhou form submission, with response captured directly from the actual app.
         with page.expect_response(lambda r: "/registry/invoke/" in r.url and "/add" in r.url and r.request.method == "POST") as added:
-            page.locator(".header-actions button.el-button--primary").last.click()
+            page.get_by_role("button", name="保存", exact=True).last.click()
         result = added.value.json()
         assert result.get("success") is True, result
         expect(page.get_by_text("双执行器状态反馈系统", exact=True).first).to_be_visible()
@@ -57,7 +63,7 @@ with sync_playwright() as pw:
         for label, value in [("状态矩阵 A", "1,0;0,-2"), ("输入矩阵 B", "0,0;0,1"), ("输出矩阵 C", "1,0;0,1"), ("状态反馈 K（可选）", "3,0;0,0")]:
             page.get_by_placeholder("请输入" + label, exact=True).fill(value)
         with page.expect_response(lambda r: "/registry/invoke/" in r.url and "/add" in r.url and r.request.method == "POST") as added_failure:
-            page.locator(".header-actions button.el-button--primary").last.click()
+            page.get_by_role("button", name="保存", exact=True).last.click()
         assert added_failure.value.json().get("success") is True
         failed_row = page.get_by_role("row").filter(has_text="第一执行器失效")
         expect(failed_row).to_be_visible()
