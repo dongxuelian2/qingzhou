@@ -12,6 +12,7 @@
     <packaging>pom</packaging>
     <modules>
         <module>qingzhou-app-demo</module>
+        <module>qingzhou-app-certicontrol</module>
         <module>qingzhou-app-oauth</module>
         <module>qingzhou-app-redis</module>
         <module>qingzhou-app-tomcat</module>
