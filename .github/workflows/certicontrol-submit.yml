@@ -1,0 +1,77 @@
+name: Submit CertiControl to AtomGit
+on:
+  push:
+    branches: [atomgit-bridge]
+    paths: ['.github/workflows/certicontrol-submit.yml']
+permissions:
+  contents: read
+concurrency:
+  group: certicontrol-atomgit-submit
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      sha: ${{ steps.revision.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: contrib/certicontrol
+          persist-credentials: false
+      - id: revision
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: mvn -B -pl apps/qingzhou-app-certicontrol -am clean package
+  submit:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Push tested revision and open upstream PR
+        shell: bash
+        env:
+          ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
+          TESTED_SHA: ${{ needs.build.outputs.sha }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -euo pipefail
+          test -n "$ATOMGIT_TOKEN" || { echo 'Missing ATOMGIT_TOKEN'; exit 1; }
+          api=https://api.atomgit.com/api/v5
+          curl -fsS --max-time 30 -H "Authorization: Bearer $ATOMGIT_TOKEN" "$api/user" | jq -e '.login == "ddy0405" or .username == "ddy0405"' >/dev/null
+          branch=contrib/certicontrol
+          git fetch --no-tags origin "refs/heads/$branch"
+          test "$(git rev-parse FETCH_HEAD)" = "$TESTED_SHA" || { echo 'Branch changed after build'; exit 1; }
+          remote=https://atomgit.com/ddy0405/qingzhou.git
+          upstream=https://atomgit.com/openeuler/qingzhou.git
+          base=$(git ls-remote --symref "$upstream" HEAD | sed -n 's@^ref: refs/heads/\([^[:space:]]*\)[[:space:]]HEAD$@\1@p')
+          test -n "$base"
+          git check-ref-format "refs/heads/$base"
+          askpass=$(mktemp)
+          trap 'rm -f "$askpass"' EXIT
+          cat > "$askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' 'ddy0405' ;;
+            *Password*) printf '%s\n' "$ATOMGIT_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 700 "$askpass"
+          GIT_ASKPASS="$askpass" git -c credential.helper= push "$remote" "$TESTED_SHA:refs/heads/$branch"
+          existing=$(curl -fsS --max-time 30 -H "Authorization: Bearer $ATOMGIT_TOKEN" "$api/repos/openeuler/qingzhou/pulls?state=open&author=ddy0405&per_page=100" | jq -r --arg branch "$branch" --arg base "$base" '[.[] | select((.head.ref // .source_branch) == $branch and (.base.ref // .target_branch) == $base)] | first | .number // .iid // empty')
+          if [[ -n "$existing" ]]; then
+            echo "Existing PR: https://atomgit.com/openeuler/qingzhou/pulls/$existing"
+            exit 0
+          fi
+          payload=$(jq -n --arg head "ddy0405:$branch" --arg base "$base" \
+            --arg title "新增 CertiControl 控制系统诊断应用" \
+            --arg body "新增轻舟原生 Java 应用，支持连续时间 LTI 系统模型登记、SVD/PBH 可控性与可观性诊断、开闭环谱稳定性、Lyapunov 证书及单通道故障分析。提供轻舟 REST/MCP 动作、部署文档与 TestNG 测试。构建命令：mvn -pl apps/qingzhou-app-certicontrol -am clean package。" \
+            '{title:$title,head:$head,base:$base,body:$body}')
+          curl -fsS --max-time 30 -X POST -H "Authorization: Bearer $ATOMGIT_TOKEN" -H 'Content-Type: application/json' -d "$payload" "$api/repos/openeuler/qingzhou/pulls" | jq -er '.number // .iid | "PR created: https://atomgit.com/openeuler/qingzhou/pulls/\(.)"'
