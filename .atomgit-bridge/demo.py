@@ -20,7 +20,9 @@ with sync_playwright() as pw:
         expect(card.first).to_be_visible(timeout=60000)
         page.screenshot(path=OUT / "01-app-list.png", full_page=True)
         card.first.click()
-        page.get_by_text("系统模型", exact=True).first.click()
+        page.get_by_text("系统模型", exact=True).first.wait_for(state="visible")
+        if not page.get_by_role("button", name="新增", exact=True).first.is_visible():
+            page.get_by_text("系统模型", exact=True).first.click()
         page.get_by_role("button", name="新增", exact=True).first.click()
         name = page.get_by_placeholder("请输入系统名称", exact=True)
         name.fill("双执行器状态反馈系统")
@@ -29,23 +31,38 @@ with sync_playwright() as pw:
         page.screenshot(path=OUT / "02-model-form.png", full_page=True)
         # Native Qingzhou form submission, with response captured directly from the actual app.
         with page.expect_response(lambda r: "/registry/invoke/" in r.url and "/add" in r.url and r.request.method == "POST") as added:
-            page.get_by_role("button", name="确定", exact=True).last.click()
+            page.locator(".header-actions button.el-button--primary").last.click()
         result = added.value.json()
         assert result.get("success") is True, result
         expect(page.get_by_text("双执行器状态反馈系统", exact=True).first).to_be_visible()
         expect(page.get_by_text("HURWITZ", exact=True).first).to_be_visible()
         page.screenshot(path=OUT / "03-system-diagnosis.png", full_page=True)
         row = page.get_by_role("row").filter(has_text="双执行器状态反馈系统")
+        fault_button = row.get_by_text("单通道故障分析", exact=True)
+        if not fault_button.is_visible():
+            row.get_by_text("更多", exact=True).click()
+            fault_button = page.get_by_text("单通道故障分析", exact=True).last
         with page.expect_response(lambda r: "/registry/invoke/" in r.url and "/faults" in r.url and r.request.method == "POST") as fault:
-            row.get_by_text("单通道故障分析", exact=True).click()
+            fault_button.click()
         response = fault.value.json()
         assert response.get("success") is True, response
         data = response["data"]
         assert data["actuator 1 closed-loop stability"] == "UNSTABLE", data
         assert float(data["actuator 1 closed-loop margin"]) == -1.0, data
-        expect(page.get_by_text("UNSTABLE", exact=False).first).to_be_visible()
-        page.screenshot(path=OUT / "04-actuator-failure.png", full_page=True)
         (OUT / "fault-response.json").write_text(json.dumps(response, ensure_ascii=False, indent=2))
+        page.screenshot(path=OUT / "04-fault-action.png", full_page=True)
+        # Register the failed actuator model as a second record to show the measured difference in the native table.
+        page.get_by_role("button", name="新增", exact=True).first.click()
+        page.get_by_placeholder("请输入系统名称", exact=True).fill("第一执行器失效")
+        for label, value in [("状态矩阵 A", "1,0;0,-2"), ("输入矩阵 B", "0,0;0,1"), ("输出矩阵 C", "1,0;0,1"), ("状态反馈 K（可选）", "3,0;0,0")]:
+            page.get_by_placeholder("请输入" + label, exact=True).fill(value)
+        with page.expect_response(lambda r: "/registry/invoke/" in r.url and "/add" in r.url and r.request.method == "POST") as added_failure:
+            page.locator(".header-actions button.el-button--primary").last.click()
+        assert added_failure.value.json().get("success") is True
+        failed_row = page.get_by_role("row").filter(has_text="第一执行器失效")
+        expect(failed_row).to_be_visible()
+        expect(failed_row.get_by_text("UNSTABLE", exact=True).last).to_be_visible()
+        page.screenshot(path=OUT / "05-fault-comparison.png", full_page=True)
     except Exception:
         page.screenshot(path=OUT / "failure.png", full_page=True)
         (OUT / "page-visible-text.txt").write_text(page.locator("body").inner_text())
