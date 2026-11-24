@@ -1,0 +1,23 @@
+name: CertiControl build
+on:
+  push:
+    branches: [atomgit-bridge]
+    paths:
+      - '.github/workflows/certicontrol-build.yml'
+      - '.atomgit-bridge/request.txt'
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: contrib/certicontrol
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: mvn -B -pl apps/qingzhou-app-certicontrol -am clean package
