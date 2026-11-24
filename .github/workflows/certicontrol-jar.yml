@@ -12,13 +12,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: f2deeed0cd1bdca67dfff4aa70b872a4da799773
+          ref: 13551a9102391822a443d1a7542d750b1b0dabda
           persist-credentials: false
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - run: mvn -B -pl apps/qingzhou-app-certicontrol -am clean package -DskipTests
+      - run: mvn -B -pl apps/qingzhou-app-certicontrol -am clean package
       - name: Prepare deployable JAR
         run: |
           mkdir -p dist
@@ -27,7 +27,27 @@ jobs:
           jar tf dist/qingzhou-app-certicontrol.jar | grep 'qingzhou/app/certicontrol/internal/math3/linear/SingularValueDecomposition.class'
       - uses: actions/upload-artifact@v4
         with:
-          name: qingzhou-app-certicontrol
+          name: qingzhou-app-certicontrol-examples
           path: dist/qingzhou-app-certicontrol.jar
           if-no-files-found: error
           retention-days: 90
+      - name: Update existing AtomGit PR branch
+        env:
+          ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
+          GIT_TERMINAL_PROMPT: '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ATOMGIT_TOKEN"
+          askpass=$(mktemp)
+          trap 'rm -f "$askpass"' EXIT
+          cat > "$askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' 'ddy0405' ;;
+            *Password*) printf '%s\n' "$ATOMGIT_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 700 "$askpass"
+          GIT_ASKPASS="$askpass" git -c credential.helper= push https://atomgit.com/ddy0405/qingzhou.git HEAD:refs/heads/contrib/certicontrol
