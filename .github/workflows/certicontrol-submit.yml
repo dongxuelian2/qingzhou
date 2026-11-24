@@ -9,25 +9,7 @@ concurrency:
   group: certicontrol-atomgit-submit
   cancel-in-progress: false
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    outputs:
-      sha: ${{ steps.revision.outputs.sha }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: contrib/certicontrol
-          persist-credentials: false
-      - id: revision
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - run: mvn -B -pl apps/qingzhou-app-certicontrol -am clean package
   submit:
-    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -38,7 +20,7 @@ jobs:
         shell: bash
         env:
           ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
-          TESTED_SHA: ${{ needs.build.outputs.sha }}
+          TESTED_SHA: f2deeed0cd1bdca67dfff4aa70b872a4da799773
           GIT_TERMINAL_PROMPT: '0'
         run: |
           set -euo pipefail
@@ -65,7 +47,7 @@ jobs:
           EOF
           chmod 700 "$askpass"
           GIT_ASKPASS="$askpass" git -c credential.helper= push "$remote" "$TESTED_SHA:refs/heads/$branch"
-          existing=$(curl -fsS --max-time 30 -H "Authorization: Bearer $ATOMGIT_TOKEN" "$api/repos/openeuler/qingzhou/pulls?state=open&author=ddy0405&per_page=100" | jq -r --arg branch "$branch" --arg base "$base" '[.[] | select((.head.ref // .source_branch) == $branch and (.base.ref // .target_branch) == $base)] | first | .number // .iid // empty')
+          existing=$(curl -fsS --max-time 30 -H "Authorization: Bearer $ATOMGIT_TOKEN" "$api/repos/openeuler/qingzhou/pulls?state=open&per_page=100" | jq -r --arg branch "$branch" --arg base "$base" '[.[] | select((.head.ref // .source_branch) == $branch and (.base.ref // .target_branch) == $base and (.source_project.path_with_namespace // .head.repo.full_name) == "ddy0405/qingzhou")] | first | .number // .iid // empty')
           if [[ -n "$existing" ]]; then
             echo "Existing PR: https://atomgit.com/openeuler/qingzhou/pulls/$existing"
             exit 0
@@ -73,5 +55,5 @@ jobs:
           payload=$(jq -n --arg head "ddy0405:$branch" --arg base "$base" \
             --arg title "新增 CertiControl 控制系统诊断应用" \
             --arg body "新增轻舟原生 Java 应用，支持连续时间 LTI 系统模型登记、SVD/PBH 可控性与可观性诊断、开闭环谱稳定性、Lyapunov 证书及单通道故障分析。提供轻舟 REST/MCP 动作、部署文档与 TestNG 测试。构建命令：mvn -pl apps/qingzhou-app-certicontrol -am clean package。" \
-            '{title:$title,head:$head,base:$base,body:$body}')
+            '{title:$title,head:$head,base:$base,body:$body,fork_path:"ddy0405/qingzhou"}')
           curl -fsS --max-time 30 -X POST -H "Authorization: Bearer $ATOMGIT_TOKEN" -H 'Content-Type: application/json' -d "$payload" "$api/repos/openeuler/qingzhou/pulls" | jq -er '.number // .iid | "PR created: https://atomgit.com/openeuler/qingzhou/pulls/\(.)"'
