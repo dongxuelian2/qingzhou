@@ -46,6 +46,17 @@ public class ControlAnalysisTest {
     @Test(expectedExceptions=IllegalArgumentException.class)
     public void rejectsNonfinite() { ControlAnalysis.parse("NaN"); }
 
+    @Test public void builtInExamples() {
+        Map<String,Map<String,String>> examples=Systems.examples();
+        Assert.assertEquals(examples.size(),3);
+        Assert.assertEquals(examples.get("example-01").get("openStability"),"HURWITZ");
+        Assert.assertEquals(examples.get("example-02").get("closedStability"),"HURWITZ");
+        Assert.assertEquals(examples.get("example-03").get("closedStability"),"UNSTABLE");
+        Assert.assertEquals(examples.get("example-03").get("controllable"),"FAIL");
+        Assert.assertEquals(Double.parseDouble(examples.get("example-02").get("closedMargin")),2.0,1e-10);
+        Assert.assertEquals(Double.parseDouble(examples.get("example-03").get("closedMargin")),-1.0,1e-10);
+    }
+
     @Test public void registryLifecycle() throws Exception {
         Systems registry=new Systems();
         registry.add(model("-1","1","1",""));

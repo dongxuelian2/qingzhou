@@ -84,7 +84,11 @@ public class Systems extends ModelBase implements Page, Show, Add, Update, Delet
     @Override
     public synchronized void start() {
         storage = getAppContext().getRoot().toPath().resolve("certicontrol").resolve("systems.properties");
-        if (!Files.exists(storage)) return;
+        if (!Files.exists(storage)) {
+            try { persist(examples()); }
+            catch (IOException e) { throw new IllegalStateException("Cannot initialize CertiControl examples",e); }
+            return;
+        }
         Properties properties = new Properties();
         try (InputStream in = Files.newInputStream(storage)) {
             properties.load(in);
@@ -98,6 +102,24 @@ public class Systems extends ModelBase implements Page, Show, Add, Update, Delet
                 record.setValue(validated(record.getKey(),record.getValue()));
             }
         } catch (IOException e) { throw new IllegalStateException("Cannot load CertiControl systems",e); }
+    }
+
+    static Map<String,Map<String,String>> examples() {
+        Map<String,Map<String,String>> values = new LinkedHashMap<>();
+        values.put("example-01", example("example-01", "稳定振荡系统", "-1,-2;2,-1", "1;0", "1,0", ""));
+        values.put("example-02", example("example-02", "双执行器状态反馈系统", "1,0;0,-2", "1,0;0,1", "1,0;0,1", "3,0;0,0"));
+        values.put("example-03", example("example-03", "第一执行器失效系统", "1,0;0,-2", "0,0;0,1", "1,0;0,1", "3,0;0,0"));
+        return values;
+    }
+
+    private static Map<String,String> example(String id,String name,String a,String b,String c,String k) {
+        Map<String,String> input = new LinkedHashMap<>();
+        input.put("name",name);
+        input.put("a",a);
+        input.put("b",b);
+        input.put("c",c);
+        input.put("k",k);
+        return validated(id,input);
     }
 
     private void persist(Map<String,Map<String,String>> next) throws IOException {
@@ -176,6 +198,17 @@ public class Systems extends ModelBase implements Page, Show, Add, Update, Delet
             rows.add(row);
         }
         return rows;
+    }
+
+    @ModelAction(code="loadExamples", icon="Plus", list_head=true, name={"加载内置实例","en:Load examples"})
+    public synchronized void loadExamples(Request request) throws IOException {
+        Map<String,Map<String,String>> next = new LinkedHashMap<>(records);
+        for (Map.Entry<String,Map<String,String>> example : examples().entrySet()) {
+            next.putIfAbsent(example.getKey(), example.getValue());
+        }
+        if (next.size() > 200) throw new IllegalArgumentException("Maximum 200 systems");
+        persist(next);
+        request.getResponse().message("内置实例已加载 / Examples loaded");
     }
 
     @ModelAction(code="diagnose", icon="Check", list=true, show=true, popup=true, name={"重新诊断","en:Run diagnostics"})
